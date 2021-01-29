@@ -31,3 +31,6 @@ Rough idea of the approach I have in mind:
 
 # 2021-01-26
 - Rather than messing around with `regex` on raw `journalctl` outputs and THEN converting to a JSON, `journalctl` provied a `json` flag which would simplify matters. The Journal JSON Format spec: https://www.freedesktop.org/wiki/Software/systemd/json/
+
+# 2021-01-29
+- Seems like `journalctl`'s UNIX timestamp uses microseconds by default 
