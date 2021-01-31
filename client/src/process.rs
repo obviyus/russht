@@ -30,9 +30,9 @@ struct AlphaLog {
 fn process_message(message: &str) -> Result<IpAndPort, &'static str> {
     let re = Regex::new(
         r"
-        (?x)([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}) 
-        \s+ port \s+ 
-        ([0-9]+)
+        (?x)([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}) # IP Address
+        \s+ port \s+                                         
+        ([0-9]+)                                             # Port
         ",
     )
     .unwrap();
@@ -46,30 +46,32 @@ fn process_message(message: &str) -> Result<IpAndPort, &'static str> {
     }
 }
 
-fn process_line(json_string: String) -> Result<Value, String> {
+fn process_line(json_string: String) -> Result<Value, &'static str> {
     let log_line: Value = serde_json::from_str(&json_string).unwrap();
 
-    let message = &log_line["MESSAGE"].as_str().unwrap();
-    match process_message(message) {
-        Ok(ip_and_port) => {
-            let timestamp_microseconds = &log_line["_SOURCE_REALTIME_TIMESTAMP"].as_str().unwrap();
-            let timestamp_seconds: String =
-                timestamp_microseconds[..timestamp_microseconds.len() - 6].to_string();
-
-            Ok(json!({
-                "failed": "true",
-                "hostname": log_line["_HOSTNAME"].as_str(),
-                "ip": ip_and_port.ip.to_owned(),
-                "port": ip_and_port.port.to_owned(),
-                "pid": log_line["_PID"].as_str(),
-                "timestamp": timestamp_seconds.to_owned(),
-                "user": "[placeholder]".to_string(),
-            }))
-        }
-        Err(e) => {
-            eprintln!("cannot process log message: {}", e);
-            Err(e.to_string())
+    match &log_line["MESSAGE"].as_str() {
+        Some(message) => match process_message(message) {
+            Ok(ip_and_port) => {
+                let timestamp_microseconds =
+                    &log_line["_SOURCE_REALTIME_TIMESTAMP"].as_str().unwrap();
+                let timestamp_seconds: String =
+                    timestamp_microseconds[..timestamp_microseconds.len() - 6].to_string();
+                Ok(json!({
+                    "failed": "true",
+                    "hostname": log_line["_HOSTNAME"].as_str(),
+                    "ip": ip_and_port.ip.to_owned(),
+                    "port": ip_and_port.port.to_owned(),
+                    "pid": log_line["_PID"].as_str(),
+                    "timestamp": timestamp_seconds.to_owned(),
+                    "user": "[placeholder]".to_string(),
+                }))
+            }
+            Err(e) => {
+                eprintln!("cannot process log message: {}", e);
+                Err(e)
+            }
         },
+        None => Err("no MESSAGE value identified in log"),
     }
 }
 
@@ -87,14 +89,14 @@ fn send_log(log_message: Value) -> Result<(), std::env::VarError> {
 pub fn main() -> Result<(), Error> {
     // Run journalctl -f to continously display SSH logs as they appear
     let stdout = Command::new("journalctl")
-        // .arg("_COMM=sshd")
+        .arg("_COMM=sshd")
         .arg("-f")
         .arg("-o")
         .arg("json")
         .stdout(Stdio::piped())
         .spawn()?
         .stdout
-        .ok_or_else(|| Error::new(ErrorKind::Other, "Could not capture STDOUT."))?;
+        .ok_or_else(|| Error::new(ErrorKind::Other, "Could not capture STDOUT"))?;
 
     let reader = BufReader::new(stdout);
 
