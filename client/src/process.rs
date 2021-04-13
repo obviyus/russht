@@ -38,6 +38,8 @@ fn process_message(message: &str) -> Result<IpAndPort, &'static str> {
     )
     .unwrap();
 
+    println!("{:#?}", message);
+
     match re.captures(message) {
         Some(caps) => Ok(IpAndPort {
             ip: caps.get(1).map_or("", |m| m.as_str()),
