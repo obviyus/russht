@@ -1,9 +1,10 @@
-use regex::Regex;
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use std::env;
 use std::io::{BufRead, BufReader, Error, ErrorKind};
 use std::process::{Command, Stdio};
+
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value};
 
 #[derive(Serialize, Deserialize)]
 struct SshLog {
@@ -46,7 +47,7 @@ fn process_message(message: &str) -> Result<IpAndPort, &'static str> {
     }
 }
 
-fn process_line(json_string: String) -> Result<Value, &'static str> {
+fn process_line(json_string: String) -> Result<SshLog, &'static str> {
     let log_line: Value = serde_json::from_str(&json_string).unwrap();
 
     match &log_line["MESSAGE"].as_str() {
@@ -56,38 +57,39 @@ fn process_line(json_string: String) -> Result<Value, &'static str> {
                     &log_line["_SOURCE_REALTIME_TIMESTAMP"].as_str().unwrap();
                 let timestamp_seconds: String =
                     timestamp_microseconds[..timestamp_microseconds.len() - 6].to_string();
-                Ok(json!({
-                    "failed": "true",
-                    "hostname": log_line["_HOSTNAME"].as_str(),
-                    "ip": ip_and_port.ip.to_owned(),
-                    "port": ip_and_port.port.to_owned(),
-                    "pid": log_line["_PID"].as_str(),
-                    "timestamp": timestamp_seconds.to_owned(),
-                    "user": "[placeholder]".to_string(),
-                }))
+
+                Ok(SshLog {
+                    failed: false,
+                    hostname: log_line["_HOSTNAME"].as_str().unwrap().parse().unwrap(),
+                    ip: ip_and_port.ip.parse().unwrap(),
+                    pid: log_line["_PID"].to_string(),
+                    port: ip_and_port.port.parse().unwrap(),
+                    timestamp: timestamp_seconds.to_string(),
+                    user: "[placeholder]".to_string(),
+                })
             }
             Err(e) => {
-                eprintln!("cannot process log message: {}", e);
                 Err(e)
             }
         },
-        None => Err("no MESSAGE value identified in log"),
+        None => Err("no MESSAGE field present in log"),
     }
 }
 
 fn send_log(log_message: Value) -> Result<(), std::env::VarError> {
-    let request_url = match env::var("AS_ADDRESS") {
+    let request_url = match env::var("ALPHA_SERVER_ADDRESS") {
         Ok(url) => {
             let response = ureq::post(&url).send_json(log_message);
             println!("Log reported with id: {:#?}", response.unwrap());
         }
         Err(e) => return Err(e),
     };
+
     Ok(request_url)
 }
 
 pub fn main() -> Result<(), Error> {
-    // Run journalctl -f to continously display SSH logs as they appear
+    // Run journalctl -f to continuously display SSH logs as they appear
     let stdout = Command::new("journalctl")
         .arg("_COMM=sshd")
         .arg("-f")
@@ -104,7 +106,7 @@ pub fn main() -> Result<(), Error> {
         .lines()
         .filter_map(|line| line.ok())
         .filter_map(|line| process_line(line).ok())
-        .for_each(|line| println!("{}", line));
+        .for_each(|line| println!("{}", line.ip));
     // .for_each(|line| send_log(line).unwrap());
 
     Ok(())
